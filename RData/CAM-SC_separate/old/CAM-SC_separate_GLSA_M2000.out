@@ -1,0 +1,427 @@
+
+R version 3.6.0 (2019-04-26) -- "Planting of a Tree"
+Copyright (C) 2019 The R Foundation for Statistical Computing
+Platform: x86_64-redhat-linux-gnu (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+> 
+> 
+> ##########################
+> #spatial count model from capture recapture with small mammal camera trap data
+> #estimates for each grid calculated separately
+> #run SC model chains in parallel
+> ##########################
+> 
+> ######
+> #load packages
+> 
+> library(oSCR)
+> require(coda)
+Loading required package: coda
+> require(nimble)
+Loading required package: nimble
+nimble version 0.13.1 is loaded.
+For more information on NIMBLE and a User Manual,
+please visit https://R-nimble.org.
+
+Note for advanced users who have written their own MCMC samplers:
+  As of version 0.13.0, NIMBLE's protocol for handling posterior
+  predictive nodes has changed in a way that could affect user-defined
+  samplers in some situations. Please see Section 15.5.1 of the User Manual.
+
+Attaching package: ‘nimble’
+
+The following object is masked from ‘package:stats’:
+
+    simulate
+
+> require(igraph)
+Loading required package: igraph
+
+Attaching package: ‘igraph’
+
+The following objects are masked from ‘package:stats’:
+
+    decompose, spectrum
+
+The following object is masked from ‘package:base’:
+
+    union
+
+> require(plyr)
+Loading required package: plyr
+> require(MCMCglmm)
+Loading required package: MCMCglmm
+Loading required package: Matrix
+Loading required package: ape
+
+Attaching package: ‘ape’
+
+The following objects are masked from ‘package:igraph’:
+
+    edges, mst, ring
+
+
+Attaching package: ‘MCMCglmm’
+
+The following objects are masked from ‘package:igraph’:
+
+    path, sir
+
+> require(lattice)
+Loading required package: lattice
+> 
+> #######
+> #load data
+> ####
+> 
+> #import lambda0 and sigma values from SCR-B models, SCR-random
+> pars <- read.table(file="SCR_bigparameters.txt", sep=",", header=T)
+> pars <- pars[,c("sp","model","mean.lam","sd.lam","mean.sig","sd.sig")]
+> 
+> pars <- pars[rep(seq_len(nrow(pars)), each = 9), ]
+> pars$g <- rep(1:9, 3)
+> 
+> ###############
+> #R defines dgamma as: f(x)= 1/(s^a Gamma(a)) x^(a-1) e^-(x/s)
+> #mean=a*s and variance=a*s^2.
+> #mu = a*s --> a = mu/s
+> #v = a*s^2 --> v = mu*s = sd^2 --> s = sd^2/mu
+> #a = shape, s = scale
+> 
+> s <- function(mu, sd) {sd^2/mu}
+> a <- function(mu, s) {mu/s}
+> 
+> ###################
+> #define model file
+> ###################
+> 
+> noninformative_code <- nimbleCode({
++   #priors
++   lam0~dunif(0,100)
++   sigma~dunif(0,200)
++   psi~dunif(0,1)
++   
++   ####model for unmarked individuals
++   for (i in 1:M)
++   {
++     z[i]~dbern(psi) #is individual real? 
++     Su[i,1]~dunif(xlims[1], xlims[2]) #x-coord activity center
++     Su[i,2]~dunif(ylims[1], ylims[2]) #y-coord activity center
++     
++     for(j in 1:J)
++     {
++       D2u[i,j]<-(Su[i,1]-X[j,1])^2 + (Su[i,2]-X[j,2])^2 #squared distance
++       lamu[i,j]<-lam0*exp(-D2u[i,j]/(2*sigma^2)) * z[i] #capture prob at trap j
++       lam.eff[i,j]<-lamu[i,j]*K[j] # *Eff[j,k]  #add in whether camera was functioning or not, K is number of occasions each camera was operational
++     }
++   }
++   
++   for (j in 1:J)
++   {
++     bigLambda[j] <- sum(lam.eff[1:M,j])
++     n[j] ~ dpois(bigLambda[j]) #model for data
++   }
++   
++   N <- sum(z[1:M]) 
++   D <- N/S.Area*10000 #density in ha
++ })
+> 
+> informative_code <- nimbleCode({
++   #priors
++   lam0~dunif(0,100)
++   sigma~dgamma(s.a, 1/s.s)
++   psi~dunif(0,1)
++   
++   ####model for unmarked individuals
++   for (i in 1:M)
++   {
++     z[i]~dbern(psi)
++     Su[i,1]~dunif(xlims[1], xlims[2])
++     Su[i,2]~dunif(ylims[1], ylims[2])
++     
++     for(j in 1:J)
++     {
++       D2u[i,j]<-(Su[i,1]-X[j,1])^2 + (Su[i,2]-X[j,2])^2
++       lamu[i,j]<-lam0*exp(-D2u[i,j]/(2*sigma^2)) * z[i]
++       
++       #yu[i,j]~dpois(lam.eff[i,j])
++       lam.eff[i,j]<-lamu[i,j]*K[j] # *Eff[j,k]  #add in whether camera was functioning or not
++     }
++   }
++   
++   for (j in 1:J)
++   {
++     bigLambda[j] <- sum(lam.eff[1:M,j])
++     n[j] ~ dpois(bigLambda[j])
++   }
++   
++   N <- sum(z[1:M])
++   D <- N/S.Area*10000
++ })
+> 
+> ########
+> #function to run in parallel
+> 
+> run_all_code <- function(seed, code, data, constants, monitors, inits, n.adapt, n.iter, n.burnin)
++ {
++   library(nimble)
++   
++   params<- c("N","D","lambda0","sigma","psi")
++   
++   myModel <- nimbleModel(code = code,
++                          data = data,
++                          constants = constants,
++                          inits = inits)
++   CmyModel <- compileNimble(myModel)
++   
++   myMCMC <- configureMCMC(CmyModel, monitors=monitors)
++   BmyMCMC <- buildMCMC(myMCMC)
++   CmyMCMC <- compileNimble(BmyMCMC)
++   
++   # results <- runMCMC(CmyMCMC, niter = 7500, nburnin=1000, setSeed = seed, summary=F, samplesAsCodaMCMC = T, progressBar = T)
++   results <- runMCMC(CmyMCMC, niter = n.iter, nburnin=n.burnin, setSeed = seed, summary=F, samplesAsCodaMCMC = T, progressBar = T)
++   
++   return(results)
++ }
+> 
+> p <- function(g, sp.cr, t, n.chains, n.adapt, n.iter, n.burnin, info)
++ {
++   # g <- 1
++   # sp.cr <- "TATO"
++   # info <- "noinfo"
++   # t <- 0
++   
++   load(file=paste("RData/CAM-SC_separate_nimbleargs_", sp.cr,"_SM-0", g,"_t",t,".RData", sep=""))
++   
++   if(info == "noinfo")
++   {
++     constants <<- list(M=M, K=K, J=J, S.Area=S.Area) #for non-informative priors
++     print(constants)
++     
++     #######
++     #run in parallel
++     this_cluster <- parallel::makeCluster(3)
++     
++     chain_output <- parallel::parLapply(cl = this_cluster, X = 1:3, 
++                                         fun = run_all_code, 
++                                         code=noninformative_code, #non-informative priors
++                                         data = data.UNM,
++                                         constants=constants,monitors=monitors,inits=inits,
++                                         n.adapt=n.adapt, n.iter=n.iter, n.burnin=n.burnin)
++     parallel::stopCluster(this_cluster)
++   }
++     
++   if(info == "info")
++   {
++     l.s <- s(pars[pars$sp == sp.cr & pars$g == g,]$mean.lam, pars[pars$sp == sp.cr & pars$g == g,]$sd.lam)
++     l.a <- a(pars[pars$sp == sp.cr & pars$g == g,]$mean.lam, pars[pars$sp == sp.cr & pars$g == g,]$sd.lam)
++ 
++     s.s <- s(pars[pars$sp == sp.cr & pars$g == g,]$mean.sig, pars[pars$sp == sp.cr & pars$g == g,]$sd.sig)
++     s.a <- a(pars[pars$sp == sp.cr & pars$g == g,]$mean.sig, pars[pars$sp == sp.cr & pars$g == g,]$sd.sig)
++ 
++     constants <<- list(M=M, K=K, J=J, S.Area=S.Area, l.s=l.s, l.a=l.a, s.s=s.s, s.a=s.a) #for informative priors
++     print(constants)
++     
++     #######
++     #run in parallel
++     this_cluster <- parallel::makeCluster(3)
++     
++     chain_output <- parallel::parLapply(cl = this_cluster, X = 1:3, 
++                                         fun = run_all_code, 
++                                         code=informative_code, #informative priors
++                                         data = data.UNM,
++                                         constants=constants,monitors=monitors,inits=inits,
++                                         n.adapt=n.adapt, n.iter=n.iter, n.burnin=n.burnin)
++     parallel::stopCluster(this_cluster)
++     # mod.UNM <- nimbleMCMC(code=informative_code, constants=constants, data=data.UNM, monitors=monitors, inits=inits, #informative priors
++     #                       niter=n.iter, nburnin=n.burnin, nchains=n.chains, progressBar=T, check=F, samplesAsCodaMCMC=T, summary=F)
++   }
++   out.UNM <- list(mod=chain_output, SArea=S.Area, sp.cr=sp.cr, g=g, info=info, M=M, t=t, J=J, K=K)
++   return(out.UNM)
++ }
+> 
+> 
+> ###############
+> #separate noinfo
+> ###############
+> 
+> # g <- 1
+> # sp.cr <- "TATO"
+> # info <- "noinfo"
+> # t <- 0
+> 
+> #
+> for(t in c(0,15,60,1440))
++ {
++ Sys.time()
++ for(g in c(1:8))
++ {
++   print(g)
++   assign(paste("glsa_",g, "_t", t, sep=""), p(g=g, t=t, sp.cr="GLSA", n.chains=3, n.adapt = 2500, n.iter=10000, n.burnin=2500, info="noinfo"))
++   save(list=ls(pattern="glsa"), file=paste("RData/CAM-SC_separate_noinfo_GLSA_SM-0", g,"_t", t, ".RData", sep=""))
++   print(Sys.time())
++ }
++ }
+[1] 1
+$M
+[1] 2000
+
+$K
+ [1] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+[39] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+
+$J
+[1] 64
+
+$S.Area
+[1] 1098500
+
+[1] "2023-06-11 13:24:53 PDT"
+[1] 2
+$M
+[1] 2000
+
+$K
+ [1] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+[39] 8 8 0 8 8 8 8 8 8 8 8 0 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+
+$J
+[1] 64
+
+$S.Area
+[1] 1098500
+
+[1] "2023-06-11 21:47:51 PDT"
+[1] 3
+$M
+[1] 2000
+
+$K
+ [1] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 0 8 8 8 8 8 8 8 8 8
+[39] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+
+$J
+[1] 64
+
+$S.Area
+[1] 1098500
+
+[1] "2023-06-12 06:13:49 PDT"
+[1] 4
+$M
+[1] 2000
+
+$K
+ [1] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+[39] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+
+$J
+[1] 64
+
+$S.Area
+[1] 1098500
+
+[1] "2023-06-12 09:39:56 PDT"
+[1] 5
+$M
+[1] 2000
+
+$K
+ [1] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+[39] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 0 8 8
+
+$J
+[1] 64
+
+$S.Area
+[1] 1098500
+
+[1] "2023-06-12 17:35:07 PDT"
+[1] 6
+$M
+[1] 2000
+
+$K
+ [1] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+[39] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+
+$J
+[1] 64
+
+$S.Area
+[1] 1098500
+
+[1] "2023-06-12 21:01:59 PDT"
+[1] 7
+$M
+[1] 2000
+
+$K
+ [1] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+[39] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+
+$J
+[1] 64
+
+$S.Area
+[1] 1098500
+
+[1] "2023-06-13 00:23:27 PDT"
+[1] 8
+$M
+[1] 2000
+
+$K
+ [1] 8 8 8 8 8 8 8 8 8 0 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+[39] 8 8 8 8 8 8 8 8 8 8 8 0 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+
+$J
+[1] 64
+
+$S.Area
+[1] 1098500
+
+[1] "2023-06-13 08:49:52 PDT"
+[1] 1
+$M
+[1] 2000
+
+$K
+ [1] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+[39] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+
+$J
+[1] 64
+
+$S.Area
+[1] 1098500
+
+[1] "2023-06-13 12:10:08 PDT"
+[1] 2
+$M
+[1] 2000
+
+$K
+ [1] 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+[39] 8 8 0 8 8 8 8 8 8 8 8 0 8 8 8 8 8 8 8 8 8 8 8 8 8 8
+
+$J
+[1] 64
+
+$S.Area
+[1] 1098500
+
