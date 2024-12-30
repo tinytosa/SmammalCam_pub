@@ -1,0 +1,52 @@
+
+      model
+      {
+      for (g in 1:n.sess) #for each grid
+      {
+      #### model for marked individuals
+      
+      for (i in 1:mmax) #individual i
+      {
+      zm[g,i] ~ dbern(psim[g]) 
+      S[g,i,1] ~ dunif(xlims[1], xlims[2]) #activity center x coord
+      S[g,i,2] ~ dunif(ylims[1], ylims[2]) #activity center y coord
+      
+      for(j in 1:J) #location j
+      {
+      D2[g,i,j] <- (S[g,i,1]-X[j,1])^2 + (S[g,i,2]-X[j,2])^2 #pythagorian theorem, distance to activity center
+      lam[g,i,j] <- lam0[g]*exp(-D2[g,i,j]/(2*sigma[g]^2)) #lambda accounting for distance from activity center
+      y[g,i,j] ~ dpois(lam.effm[g,i,j]*K[g,j])  #model accumulated counts across K for marked individuals and add for whether a camera is functioning or not
+      lam.effm[g,i,j] <- lam[g,i,j]*zm[g,i] #lambda accounting for existence of individual
+      }
+      }
+      #### priors for each grid
+      log(sigma[g]) <- log.sigma[g] # take log sigma, note: now you cannot provide initial values for sigma
+      log.sigma[g] ~ dnorm(mu.log.sigma, tau.log.sigma) # random effect on sigma for each grid
+      
+      log(lam0[g]) <- log.lam0[g] # take log lam0, note: now you cannot provide initial values for lam0
+      log.lam0[g] ~ dnorm(mu.log.lam0, tau.log.lam0) #random effect on lam0 for each grid
+      
+      psim[g]~dunif(0,1)
+      }
+    
+      for (g in 1:n.sess)
+      {
+      N[g] <- sum(zm[g,1:mmax])
+      D[g] <- N[g]/S.Area
+      }
+    
+      #### priors across grids
+      #use log normal so all values are positive
+      mu.log.sigma ~ dnorm(log(40), 1/(log(100)^2)) #mean sigma across all grids on log scale
+      allgrids.mu.sigma <- exp(mu.log.sigma) #put on real scale
+      sd.log.sigma ~ dunif(0,100) # sd of sigma on log (???) scale
+      tau.log.sigma <- pow(sd.log.sigma,-2) # precision of sigma on log (???) scale
+     
+      mu.log.lam0 ~ dnorm(log(0.1), 1/(log(0.1)^2)) # mean lam0 across all grids on log scale (here, mean=0.1, sd=0.1 on real scale)
+      allgrids.mu.lam <- exp(mu.log.lam0) #put on real scale
+      sd.log.lam0 ~ dunif(0,5) # sd of lam0 on log (???) scale
+      tau.log.lam0 <- pow(sd.log.lam0,-2) # precision of lam0 on log (???) scale
+
+      } #end model description
+      
+      

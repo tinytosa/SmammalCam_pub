@@ -1,0 +1,29 @@
+
+        
+        model{
+        #priors
+        lam0~dunif(0,5)
+        sigma~dunif(0,100) #might need to adjust these based on what output looks like, I'm setting at approx 3*mmdm
+        psim~dunif(0,1)
+        
+        #### model for marked individuals
+        
+        for (i in 1:mmax){ #
+        zm[i] ~ dbern(psim) 
+        S[i,1] ~ dunif(xlims[1], xlims[2])
+        S[i,2] ~ dunif(ylims[1], ylims[2])
+        
+        for(j in 1:J){
+        D2[i,j]<-(S[i,1]-X[j,1])^2 + (S[i,2]-X[j,2])^2
+        lam[i,j]<-lam0*exp(-D2[i,j]/(2*sigma^2))
+        y[i,j]~dpois(lam.effm[i,j]*K[j])  #model accumulated counts across K for marked individuals and add for whether a camera is functioning or not
+        lam.effm[i,j]<-lam[i,j]*zm[i]
+        }
+        }
+        
+        N<-sum(zm[1:mmax])
+        D<-N/S.Area
+        
+        } #end model description
+        
+        
