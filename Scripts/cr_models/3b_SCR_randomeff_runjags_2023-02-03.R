@@ -154,15 +154,15 @@ estimates(pema)
 estimates(glsa)
 estimates(tato)
 
-# write.table(s.all, file="Output_SCR/SCR-B_random.txt", sep=",")
-# write.table(s2.all, file="Output_SCR/SCR-B_random_mode.txt", sep=",")
+# write.table(s.all, file="Output/SCR-B_random.txt", sep=",")
+# write.table(s2.all, file="Output/SCR-B_random_mode.txt", sep=",")
 
-s.all <- read.table("Output_SCR/SCR-B_random.txt", sep=",")
-s2.all <- read.table("Output_SCR/SCR-B_random_mode.txt", sep=",")
+s.all <- read.table("Output/SCR-B_random.txt", sep=",")
+s2.all <- read.table("Output/SCR-B_random_mode.txt", sep=",")
 
 scrrandom <- cbind(s.all[grep(s.all$param, pattern="D"),], s2.all[,c("dhat","nhat","grid")])
 scrrandom$range <- paste(round(scrrandom$X2.5., digits=2), "-", round(scrrandom$X97.5., digits=2), sep=" ")
-write.csv(scrrandom, file="../SmallMammalCams/Data_Final_ModelEstimates/SCR_random.csv")
+write.csv(scrrandom, file="Output/SCR_random.csv")
 
 bigpar <- NULL
 pars <- function(model)
@@ -185,4 +185,4 @@ bigpar
 # 3 TATO SCR_random    0.168  0.022    0.127   0.166     0.213     1.00      2017 allgrids.mu.lam   33.522  1.438   30.755  33.500    36.493     1.00      6000 allgrids.mu.sigma
 
 bigpar <- merge(bigpar[bigpar$param=="allgrids.mu.lam",], bigpar[bigpar$param=="allgrids.mu.sigma",], by=c("sp","model"), suffixes=c(".lam",".sig"))
-# write.table(bigpar, file="C:/Users/tosam/Documents/0_OSU/Dissertation/Data/SmallMammalCams_SCR/SCR_bigparameters.txt", sep=",", row.names=F)
+# write.table(bigpar, file="Output/SCR_bigparameters.txt", sep=",", row.names=F)

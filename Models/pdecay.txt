@@ -1,0 +1,24 @@
+
+model
+{
+
+  for (i in 1:Nsites) #for each site
+  {
+    det[i]~dunif(0,1)
+    N[i]~dpois(lambda) #state model
+    
+    #likelihood
+    for (j in 1:Nreps) #for each obs
+    {
+      p[i,j] <- det[i]*exp(d0*(j-1))
+      y[i,j]~dbinom(p[i,j], N[i])
+    }
+  }
+  
+  #priors
+  d0~dunif(-10,0)
+  lambda~dgamma(0.001,0.001)
+  
+  sumN <- sum(N[])/Nsites #calculate average, derived parameters
+}
+

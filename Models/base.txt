@@ -1,0 +1,21 @@
+
+model{
+  for (i in 1:Nsites) #for each site
+  {
+    N[i]~dpois(lambda) #state model
+
+    #likelihood
+    for (j in 1:Nreps)
+    {
+      y[i,j]~dbinom(p,N[i]) #observation model
+    }
+  }
+  
+  #priors
+  #p~dbeta(1,1)
+  p~dunif(0,1) #uniform
+  lambda~dgamma(0.001,0.001) #underlying density
+
+  sumN <- sum(N[])/Nsites #calculate average
+}
+

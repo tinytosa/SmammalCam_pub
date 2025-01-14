@@ -1,0 +1,4 @@
+"sp","model","mean.lam","sd.lam","2.5%.lam","50%.lam","97.5%.lam","Rhat.lam","n.eff.lam","param.lam","mean.sig","sd.sig","2.5%.sig","50%.sig","97.5%.sig","Rhat.sig","n.eff.sig","param.sig"
+"GLSA","SCR_random",0.062,0.007,0.05,0.061,0.076,1.03,79,"allgrids.mu.lam",39.46,1.826,36.084,39.372,42.985,1.04,55,"allgrids.mu.sigma"
+"PEMA","SCR_random",0.063,0.013,0.042,0.062,0.09,1,3367,"allgrids.mu.lam",12.834,1.409,10.244,12.769,15.822,1,6000,"allgrids.mu.sigma"
+"TATO","SCR_random",0.168,0.022,0.127,0.166,0.213,1,2017,"allgrids.mu.lam",33.522,1.438,30.755,33.5,36.493,1,6000,"allgrids.mu.sigma"

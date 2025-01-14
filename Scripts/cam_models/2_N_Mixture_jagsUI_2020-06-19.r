@@ -1,25 +1,24 @@
-#import small mammal data
+#Nmixture models with jags
+
+#######################
+#load packages
+require(dplyr)
 require(plyr)
 require(reshape2)
+require(ggplot2)
 
-path.local <- "C:/Users/tosam/Documents/0_OSU/Dissertation/Data/SmallMammalCams/"
+#######################
+#load data
+path.local <- getwd()
 setwd(path.local)
-smdataall <- read.table("SMcamera_tags_2020-03-25.txt", sep=",")
-smdata <- read.table("SMcamera_tags_daynum_2020-05-04.txt", sep=",") #only includes data for deer mice, flying squirrels, townsends chipmunk, and voles
+
+#import small mammal data
+smdata <- read.table("Data_Raw/SMcamera_tags_daynum_2020-05-04.txt", sep=",") #only includes data for deer mice, flying squirrels, townsends chipmunk, and voles
 smdata$DT <- as.POSIXct(smdata$DT, format="%Y-%m-%d %H:%M:%S", tz="GMT")
 
-# traplocs <- read.table("traplocs.txt", sep=",", as.is = T) #as.is imports all columns with characters as character class
-# 
-# traps <- unique(smdata[,c("Directory","grid")])
-# traps$Rlet <- substr(traps$Directory, 2, 2)
-# traps.t <- traps[!traps$Rlet %in% c("P","R","T","V","X"),] #tomahawk traps
-
-
-traps.tmp <- read.csv("traplocs.txt", sep=",") #this includes both a large grid and a small grid for the CR data 
+traps.tmp <- read.csv("Data_Raw/traplocs.txt", sep=",") #this includes both a large grid and a small grid for the CR data 
 
 #as.integer for characters stopped working
-# traps.small <- traps.tmp[as.integer(traps.tmp$Rlet) > 8,] #removes traps from large grid
-# traps.large <- traps.tmp[as.integer(traps.tmp$Rlet) < 9,] #removes traps from small grid
 traps.small <- traps.tmp[traps.tmp$Rlet > "H",]
 traps.large <- traps.tmp[traps.tmp$Rlet < "I",]
 
@@ -39,7 +38,6 @@ traps.s$Directory <- paste(traps.s$grid, traps.s$RC, sep="")
 ########
 #only use shermans for PEMA
 #only use tomahawks for TATO and GLSA
-
 
 
 # require(xlsx)
@@ -127,30 +125,30 @@ for(t in c(0, 15, 60, 1440))
       w <- dcast(l[,!names(l) %in% "grid"], Directory ~ num, value.var="V1", fill=0)
       w <- w[,!names(w) %in% 0]
       assign(paste(k,grid,"w_t",t, sep="_"), w) #wide format
-      write.table(file=paste("data_perdaynum/",k,"_",grid,"_t",t,".txt", sep=""), w, sep=",", row.names=F) #write out as file, only need to do this once
+      # write.table(file=paste("Data_Raw/data_perdaynum/",k,"_",grid,"_t",t,".txt", sep=""), w, sep=",", row.names=F) #write out as file, only need to do this once
     }
   } 
 }
 
 #######
 #0. load data
-# pema_1_w <- read.table("data_perdaynum/pema_1_t0.txt", sep=",", header=T)
-# glsa_1_w <- read.table("data_perdaynum/glsa_1_t0.txt", sep=",", header=T)
+# pema_1_w <- read.table("Data_Raw/data_perdaynum/pema_1_t0.txt", sep=",", header=T)
+# glsa_1_w <- read.table("Data_Raw/data_perdaynum/glsa_1_t0.txt", sep=",", header=T)
 
 #list files
-files <- dir("data_perdaynum", pattern=".txt")
+files <- dir("Data_Raw/data_perdaynum", pattern=".txt")
 
 #load all data
 for(f in files)
 {
-  assign(gsub(f, pattern=".txt", replacement="_w"), read.table(paste("data_perdaynum/",f, sep=""), sep=",", header=T))
+  assign(gsub(f, pattern=".txt", replacement="_w"), read.table(paste("Data_Raw/data_perdaynum/",f, sep=""), sep=",", header=T))
 }
 
 #######
 #1. basic model
 #######
 
-sink("base.txt")
+sink("Models/base.txt")
 cat("
 model{
   for (i in 1:Nsites) #for each site
@@ -191,7 +189,7 @@ for(d in dname)
 {
   print(d)
   data_m <- as.matrix(eval(parse(text=d))[,!names(eval(parse(text=d))) %in% "Directory"]) #matrix format
-  #data_m <- data_m[,-1]
+  #data_m <- data_m[,-1] #remove day 1?
   Nmix1.data <- list(y=data_m, Nsites=nrow(data_m), Nreps=ncol(data_m))
   Ninit <- apply(data_m, 1, max) #get max count at each site
   
@@ -202,11 +200,11 @@ for(d in dname)
   #params=c("lambda","p")
   params=c("lambda","p","N", "sumN")
   
-  jags.out <- jags(model.file="base.txt", data=Nmix1.data, inits=Init.fun,
+  jags.out <- jags(model.file="Models/base.txt", data=Nmix1.data, inits=Init.fun,
                    parameters.to.save=params, n.chains=3, n.iter=20000, n.burnin=10000, n.thin=5, n.adapt=20000)
   print(jags.out)
   
-  write.table(jags.out$summary, file=paste("Output_Nmix/outjagsUI_base_params_", gsub(d, pattern="_w", replacement=""), "_", Sys.Date(), ".txt", sep=""), sep=",")
+  # write.table(jags.out$summary, file=paste("Output_Nmix/outjagsUI_base_params_", gsub(d, pattern="_w", replacement=""), "_", Sys.Date(), ".txt", sep=""), sep=",")
   
   #traceplot(jags.out) #plots traceplots one after another, need to hit enter
   #densityplot(jags.out)
@@ -215,9 +213,9 @@ for(d in dname)
   p <- xyplot(jagsout.mcmc[,c("lambda", "p","sumN")]) #plots traceplots in one figure
   # dp <- densityplot(jagsout.mcmc[,c("lambda", "p","sumN")]) #density plot of posterior
   
-  tiff(filename=paste("Figures_Nmix/outjags_trace_",gsub(d, pattern="_w", replacement=""), "_", Sys.Date(), ".tiff", sep=""), height=6, width=6, res=300, units="in", compression="lzw")
-  print(p)
-  dev.off()
+  # tiff(filename=paste("Figures_Nmix/outjags_trace_",gsub(d, pattern="_w", replacement=""), "_", Sys.Date(), ".tiff", sep=""), height=6, width=6, res=300, units="in", compression="lzw")
+  # print(p)
+  # dev.off()
   
   # tiff(filename=paste("Figures_Nmix/outjags_densityplot_",gsub(d, pattern="_w", replacement=""), "_", Sys.Date(), ".tiff", sep=""), height=6, width=6, res=300, units="in", compression="lzw")
   # print(dp)
@@ -229,7 +227,9 @@ for(d in dname)
 #convergence??
 ############
 require(tidyr)
-# o.nmix <- data.frame(fullfilename=dir("Data_Model_Output/Output_Nmix/UI_all_2020-06-25/", pattern=".txt", full.names = T))
+
+setwd("C:/Users/tosam/Documents/0_OSU/Dissertation/Data/SmallMammalCams/")
+
 o.nmix <- data.frame(fullfilename=dir("Data_Model_Output/Output_Nmix/alldays_base", pattern=".txt", full.names = T))
 o.nmix <- separate(o.nmix, col="fullfilename", into=c("Data_Model_Output","outfolder","model","filename"), sep="/", remove=F)
 o.nmix <- separate(o.nmix, col="filename", into=c("outjags","det","params","sp","grid","t","date"), sep="_", remove=F)
@@ -258,23 +258,21 @@ unique(out.all[out.all$Rhat > 1.1,][,c("grid","sp")])
 #########
 #1c.plot nmixture parameters against CMR estimates
 #########
-require(ggplot2)
-
 lambda <- out.all[out.all$param == "lambda",]
 
-tiff(filename="Figures_Nmix/nmix_summary_scr_alldays.tiff", width=6, height=8, units="in", res=300, compression="lzw")
+# tiff(filename="Figures_Nmix/nmix_summary_scr_alldays.tiff", width=6, height=8, units="in", res=300, compression="lzw")
 ggplot(data=lambda[!lambda$grid == 0,]) + 
   geom_point(aes(x=mean, y=grid, group=sp, col=converged), size=3) + 
   geom_segment(aes(x=X2.5., xend=X97.5., y=grid, yend=grid, col=converged), lwd=1) +
   # geom_point(data=cmr[!cmr$Grid ==9,], aes(x=nmode, y=as.numeric(Grid)+0.25, group=sp), size=3, color="steelblue", pch=17) + #for SCR_B data
   # geom_errorbar(data=cmr[!cmr$Grid ==9,], aes(xmin=n95low, xmax=n95high, y=as.numeric(Grid)+0.25, group=sp), color="steelblue", width=0.1) +
-  geom_point(data=cmr[!cmr$grid ==9,], aes(x=n, y=as.numeric(grid)+0.25, group=sp), size=3, color="steelblue", pch=17) + #for oSCR_all data
-  geom_errorbar(data=cmr[!cmr$grid ==9,], aes(xmin=n_lwr, xmax=n_upr, y=as.numeric(grid)+0.25, group=sp), color="steelblue", width=0.1) +
+  # geom_point(data=cmr[!cmr$grid ==9,], aes(x=n, y=as.numeric(grid)+0.25, group=sp), size=3, color="steelblue", pch=17) + #for oSCR_all data
+  # geom_errorbar(data=cmr[!cmr$grid ==9,], aes(xmin=n_lwr, xmax=n_upr, y=as.numeric(grid)+0.25, group=sp), color="steelblue", width=0.1) +
   
   scale_x_log10() + 
   scale_color_manual(values=c("black","grey80"), name="") +
   facet_wrap(~sp, scales="free", ncol=1) + theme_bw() + theme(legend.position="top")
-dev.off()
+# dev.off()
 
 #######
 #1extra. plot abundances
@@ -286,29 +284,29 @@ require(ggpubr)
 #plot detected values
 #g <- 1
 #sp <- "glsa"
-for(g in 0:8)
+for(g in 1:8)
 {
   for(sp in c("pema","glsa","tato"))
   {
     #plot detection values
-    og_data <- data.frame(Directory=eval(parse(text=paste(sp, g, "w", sep="_")))[,1], total=rowSums(eval(parse(text=paste(sp, g, "w", sep="_")))[,-1]))
+    og_data <- data.frame(Directory=eval(parse(text=paste(sp, g, "t0_w", sep="_")))[,1], total=rowSums(eval(parse(text=paste(sp, g, "t0_w", sep="_")))[,-1]))
     og_data$gridloc <- substr(og_data$Directory, 2, 3)
-    og_data <- merge(og_data, traplocs, by.x="gridloc", by.y="RC", all.x=T)
+    og_data <- merge(og_data, traps.tmp, by.x="gridloc", by.y="RC", all.x=T)
     
     p.det <- ggplot(data=og_data) + geom_tile(aes(posx, y=posy, fill=total)) + scale_fill_distiller(palette="Spectral") + theme_bw(base_size = 20) + coord_equal() + theme(legend.position="top")
-    ggsave(p.det, filename=paste("Figures/SM_cams_detections_", sp, "_g", g, ".tiff", sep=""), height=6, width=6, units="in", dpi=300, compression="lzw")
+    # ggsave(p.det, filename=paste("Figures/SM_cams_detections_", sp, "_g", g, ".tiff", sep=""), height=6, width=6, units="in", dpi=300, compression="lzw")
   }
 }
 
 #plot predicted n from model
-for(g in 0:8)
+for(g in 1:8)
 {
   for(sp in c("pema","glsa","tato"))
   {
     #plot predicted n values
     N.vals <- out.all[grep(out.all$param, pattern="N"),]
     N.g <- N.vals[N.vals$grid == g & N.vals$sp == sp,]
-    N.g <- data.frame(loc=eval(parse(text=paste(sp, g, "w", sep="_")))[,"Directory"], n=N.g$mean)
+    N.g <- data.frame(loc=eval(parse(text=paste(sp, g, "t0_w", sep="_")))[,"Directory"], n=N.g$mean)
     N.g$gridloc <- substr(N.g$loc, 2, 3)
     N.g <- merge(N.g, traplocs, by.x="gridloc", by.y="RC", all.x=T)
     p.N <- ggplot(data=N.g) + geom_tile(aes(x=posx, y=posy, fill=n)) + 
@@ -381,7 +379,7 @@ ggsave(r00, filename="Figures_Nmix/nmix_scr_comparisonscaled_base_all.tiff", hei
 #p[i]<- exp(logit.p[i])/(exp(logit.p[i])+1) #inverse logit
 
 
-sink("psite.txt")
+sink("Models/psite.txt")
 cat("
 model
 {
@@ -468,7 +466,7 @@ ggsave(p4, filename="detectionsperday_myo_1.tiff", height=8, width=4, units="in"
 ############
 #3a. detection by site and decay over time
 ########
-sink("pdecay.txt")
+sink("Models/pdecay.txt")
 cat("
 model
 {

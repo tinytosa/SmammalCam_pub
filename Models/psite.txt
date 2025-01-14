@@ -1,0 +1,22 @@
+
+model
+{
+  for (i in 1:Nsites) #for each site
+  {
+    p[i]~dunif(0,1)
+
+    N[i]~dpois(lambda) #state model
+    
+    #likelihood
+    for (j in 1:Nreps)
+    {
+      y[i,j]~dbinom(p[i], N[i]) #observation model
+    }
+  }
+  
+  #priors
+  lambda~dgamma(0.001,0.001)
+  
+  sumN <- sum(N[])/Nsites #calculate average
+}
+

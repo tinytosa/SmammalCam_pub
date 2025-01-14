@@ -17,23 +17,23 @@ require(ggplot2)
 require(ggpubr)
 require(xlsx)
 
-path.local <- "C:/Users/tosam/Documents/0_OSU/Dissertation/Data/SmallMammalCams/"
+path.local <- getwd()
 #path.local <- "/raid1/home/fw/tosam/SmallMammalCams/"
 setwd(path.local)
 
 ########
 #import data
 ########
-smdataall <- read.table("SMcamera_tags_2020-03-25.txt", sep=",") #all small mammal data
+smdataall <- read.table("Data_Raw/SMcamera_tags_2020-03-25.txt", sep=",") #all small mammal data
 table(smdata[,c("Keywords","grid")])
 
-smdata <- read.table("SMcamera_tags_daynum_2020-05-04.txt", sep=",") #only inlcudes data for deer mice, flying squirrels, townsends chipmunk, and voles
+smdata <- read.table("Data_Raw/SMcamera_tags_daynum_2020-05-04.txt", sep=",") #only inlcudes data for deer mice, flying squirrels, townsends chipmunk, and voles
 smdata$DT <- as.POSIXct(smdata$DT, format="%Y-%m-%d %H:%M:%S", tz="GMT")
 smdata$D <- as.POSIXct(smdata$D, format="%Y-%m-%d", tz="GMT")
 
 smdata <- smdata[smdata$num > 3 & smdata$num < 9,] #limit data to days when no bait present
 
-traplocs <- read.table("traplocs.txt", sep=",", as.is = T) #as.is imports all columns with characters as character class
+traplocs <- read.table("Data_Raw/traplocs.txt", sep=",", as.is = T) #as.is imports all columns with characters as character class
 
 traps <- unique(smdata[,c("Directory","grid")])
 traps$Rlet <- substr(traps$Directory, 2, 2)
@@ -50,14 +50,14 @@ traps.t <- traps[!traps$Rlet %in% c("P","R","T","V","X"),] #tomahawk traps
 # caminfo$DateBaited <- as.POSIXct(caminfo$DateBaited, format="%Y-%m-%d", tz="GMT")
 
 #use these for TATO, PEMA, GLSA
-sunset <- read.csv("2017_sunset_noaa.csv")
+sunset <- read.csv("Data_Raw/2017_sunset_noaa.csv")
 sunset <- melt(sunset, id.vars=c("Day"))
 sunset <- sunset[!sunset$value == "",] #remove days that don't exist
 names(sunset) <- c("date","month","sunset")
 sunset$sunsetd <- as.POSIXct(paste(sunset$month, sunset$date, "2017", sep=" "), format="%b %d %Y", tz="GMT")
 sunset$sunsetdt <- as.POSIXct(paste(sunset$month, sunset$date, "2017", sunset$sunset , sep=" "), format="%b %d %Y %H:%M", tz="GMT")
 
-sunrise <- read.csv("2017_sunrise_noaa.csv")
+sunrise <- read.csv("Data_Raw/2017_sunrise_noaa.csv")
 sunrise <- melt(sunrise, id.vars=c("Day"))
 sunrise <- sunrise[!sunrise$value=="",] #remove days that don't exist
 names(sunrise) <- c("date","month","sunrise")
@@ -214,7 +214,7 @@ for(sp in c("DEER MOUSE","TOWNSENDS CHIPMUNK","FLYING SQUIRREL"))
   }
 }
 
-write.table(results, file=paste("STE_TTE_model_results_", Sys.Date(), ".txt", sep=""), sep=",", row.names=F)
+write.table(results, file=paste("Output/output_STE_TTE_model_results_", Sys.Date(), ".txt", sep=""), sep=",", row.names=F)
 
 #count ~ pois(lambda)
 #time ~ exp(lambda)
@@ -246,19 +246,22 @@ sptospecies <- data.frame(sp=c("PEMA","TATO","GLSA"),
 #import results from SCR random
 #scaledscrn is incorrect
 ###########
-oscr <- read.table("Output_SCR_randomeff_2020-08-12.txt", sep=",", header=T)
+# oscr <- read.table("Output/SCR-B_random.txt", sep=",", header=T)
+oscr <- read.csv("Output/SCR_random.csv", header=T)
+
+oscr$scaledscrn <- 0
 for(sp in unique(oscr$sp))
 {
   print(sp)
   toscale <- oscr[oscr$sp == sp,]
-  oscr[oscr$sp == sp,]$scaledscrn <- scale(toscale$nmode)
+  oscr[oscr$sp == sp,]$scaledscrn <- scale(toscale$nhat)
 }
 oscr$sp.y <- factor(oscr$sp, levels=c("PEMA","TATO","GLSA"), labels=c("PEMA","TATO","GLOR"))
 oscr$g <- oscr$grid
 oscr$mod <- oscr$model
 
 
-eventmodel <- read.table("STE_TTE_model_results_2020-08-26.txt", sep=",", header=T)
+eventmodel <- read.table("Output/output_STE_TTE_model_results_2020-08-26.txt", sep=",", header=T)
 eventmodel <- merge(eventmodel, sptospecies, all.x=T, by.x="sp", by.y="species")
 eventmodel$model <- factor(toupper(eventmodel$model), levels=c("TTE","STE"))
 eventmodel$sp.y <- factor(eventmodel$sp.y, levels=c("PEMA","TATO","GLSA"), labels=c("PEMA","TATO","GLOR"))
@@ -282,27 +285,24 @@ plotdata$mod <- plotdata$model
 
 
 #plot by scaled estimates
-est_comp <- ggplot(data=plotdata, aes(x=nmode, y=N, col=t, shape=model)) + 
+est_comp <- ggplot(data=plotdata, aes(x=nhat, y=N, col=t, shape=model)) + 
   geom_point(size=3) +
   #geom_errorbar(aes(ymin=LCI, ymax=UCI), width=0.1) +
   #geom_errorbar(aes(xmin=n_lwr, xmax=n_upr), width=0.1) +
   stat_smooth(aes(group=t), method="lm", formula=y~x, fill=NA) +
   #stat_smooth(aes(x=nmode, y=scaledscrn), method="lm", formula= y~x, col="grey80", fill=NA, lwd=1) +
-  #xlab("oSCR_all estimate") +
   xlab("SCR random estimate (N)") +
   ylab("unmarked model estimate") +
   #geom_text(aes(label=grid)) +
   facet_wrap(~model + sp.y, scale="free", nrow=2) + theme_bw(base_size = 15)
 est_comp
-#ggsave(est_comp, filename=paste("Figures_TTE_STE/ModelEstimates_TTE_STE_vs_oSCR_", Sys.Date(), ".tiff", sep=""), 
-ggsave(est_comp, filename=paste("Figures_TTE_STE/ModelEstimates_TTE_STE_vs_SCRrandom_", Sys.Date(), ".tiff", sep=""), 
-       width=10, height=8, dpi=300, compression="lzw")
+# ggsave(est_comp, filename=paste("Figures_TTE_STE/ModelEstimates_TTE_STE_vs_SCRrandom_", Sys.Date(), ".tiff", sep=""), 
+#        width=10, height=8, dpi=300, compression="lzw")
 
 #plot by grid
 est <- ggplot(data=plotdata, aes(x=g, col=t, shape=model)) +
-  geom_point(data=oscr[!oscr$g ==9,], aes(y=n, x=grid), col="black") +
-  #geom_errorbar(data=oscr[!oscr$g ==9,], aes(xmin=n_lwr, xmax=n_upr, y=grid), col="black", width=0.1) + #for oSCRall estimates
-  geom_errorbar(data=oscr[!oscr$g ==9,], aes(ymin=n95low, ymax=n95high, y=grid), col="black", width=0.1) + #for SCRrandom estimates
+  geom_point(data=oscr[!oscr$g ==9,], aes(y=dhat, x=grid), col="black") +
+  geom_errorbar(data=oscr[!oscr$g ==9,], aes(ymin=X2.5., ymax=X97.5., y=grid), col="black", width=0.1) + #for SCRrandom estimates
   
   geom_point(aes(y=N), size=3, position=position_dodge(width=0.75)) +
   geom_errorbar(aes(ymin=LCI, ymax=UCI), width=0.1, position=position_dodge(width=0.75)) +
@@ -310,8 +310,8 @@ est <- ggplot(data=plotdata, aes(x=g, col=t, shape=model)) +
   coord_flip() +
   facet_wrap(~sp.y, scale="free") + theme_bw(base_size=15)
 est
-ggsave(est, filename=paste("Figures_TTE_STE/ModelEstimates_TTE_STE_", Sys.Date(), ".tiff", sep=""), 
-       width=10, height=6, dpi=300, compression="lzw")
+# ggsave(est, filename=paste("Figures_TTE_STE/ModelEstimates_TTE_STE_", Sys.Date(), ".tiff", sep=""), 
+#        width=10, height=6, dpi=300, compression="lzw")
 
 #######
 #scale and run linear regression
@@ -333,10 +333,11 @@ for(sp in unique(plotdata$sp.y))
       #build in linear regressions here
       lm.scaled <- lm(data=plotdata[plotdata$sp.y == sp & plotdata$mod == m & plotdata$t == t,], scaledn ~ scaledscrn)
       rmse <- sqrt(mean(lm.scaled$residuals^2))
-      #sink(paste("Output_TTE_STE/scaled_lm_", sp, "_",m,"_t", t, "_oscrall.txt", sep=""))
-      sink(paste("Output_TTE_STE/scaled_lm_", sp, "_",m,"_t", t, "_scrrandom.txt", sep=""))
-      print(summary(lm.scaled))
-      sink()
+      
+      # sink(paste("Output_TTE_STE/scaled_lm_", sp, "_",m,"_t", t, "_scrrandom.txt", sep=""))
+      # print(summary(lm.scaled))
+      # sink()
+      
       slopes <- rbind(slopes, data.frame(sp=sp, mod=m, t=t, slope=lm.scaled$coefficients[2], sd=coef(summary(lm.scaled))[,"Std. Error"][2], rmse=rmse))
       
     }
@@ -350,10 +351,11 @@ for(sp in unique(plotdata$sp.y))
     #build in linear regressions here
     lm.scaled <- lm(data=plotdata[plotdata$sp.y == sp & plotdata$mod == m,], scaledn ~ scaledscrn)
     rmse <- sqrt(mean(lm.scaled$residuals^2))
-    #sink(paste("Output_TTE_STE/scaled_lm_", sp, "_",m,"_oscrall.txt", sep=""))
-    sink(paste("Output_TTE_STE/scaled_lm_", sp, "_",m,"_scrrandom.txt", sep=""))
-    print(summary(lm.scaled))
-    sink()
+    
+    # sink(paste("Output_TTE_STE/scaled_lm_", sp, "_",m,"_scrrandom.txt", sep=""))
+    # print(summary(lm.scaled))
+    # sink()
+    
     slopes <- rbind(slopes, data.frame(sp=sp, mod=m, t=1440, slope=lm.scaled$coefficients[2], sd=coef(summary(lm.scaled))[,"Std. Error"][2], rmse=rmse))
     
     
@@ -362,9 +364,9 @@ for(sp in unique(plotdata$sp.y))
 
 #plot TTE and STE scaled estimates vs. SCR_random/oSCR_all estimates
 #no oSCR data for deer mouse grid 6 and STE data for GLSA t=1 for grid 2 and 5
-p1 <- ggplot(data=plotdata, aes(x=nmode, y=scaledn, col=t, shape=mod)) +
+p1 <- ggplot(data=plotdata, aes(x=nhat, y=scaledn, col=t, shape=mod)) +
   geom_point(size=3) +
-  geom_smooth(aes(x=nmode, y=scaledscrn), method="lm", col="grey70", lwd=0.25) +
+  geom_smooth(aes(x=nhat, y=scaledscrn), method="lm", col="grey70", lwd=0.25) +
   geom_smooth(aes(col=t, lty=mod), method="lm", lwd=1, fill=NA) +
   #geom_text(aes(label=grid), nudge_y = 0.1) +
   # scale_color_manual(breaks=c("minimum known alive","Huggins Null", "oSCR0","oSCR all",
@@ -386,7 +388,7 @@ p1 <- ggplot(data=plotdata, aes(x=nmode, y=scaledn, col=t, shape=mod)) +
   xlab("SCR random all estimate (N)") +
   facet_wrap(~ mod + sp.y, scales="free") + theme_bw(base_size=15)
 p1
-ggsave(p1, filename=paste("Figures_TTE_STE/ModelEstimates_vs_SCRrandom_", Sys.Date(), ".tiff", sep=""), width=12, height=8, units="in", dpi=300, compression="lzw")
+# ggsave(p1, filename=paste("Figures_TTE_STE/ModelEstimates_vs_SCRrandom_", Sys.Date(), ".tiff", sep=""), width=12, height=8, units="in", dpi=300, compression="lzw")
 
 #plot scaled estimate vs. SCR_B estimate slopes
 #slopes$mod <- factor(slopes$mod, levels=c("minimum known alive","Huggins Null", "oSCR0","oSCR all",
@@ -414,7 +416,7 @@ p2 <- ggplot(data=slopes, aes(x=sp, y=slope, col=t, shape=mod)) +
   theme_bw(base_size=15)
 p2
 #ggsave(p2, filename="Figures_TTE_STE/ModelEstimates_slopes_vs_oSCRall_2020-08-27.tiff", height=6, width=8, dpi=300, units="in", compression="lzw")
-ggsave(p2, filename="Figures_TTE_STE/ModelEstimates_slopes_vs_SCRrandom_2021-03-30.tiff", height=6, width=8, dpi=300, units="in", compression="lzw")
+# ggsave(p2, filename="Figures_TTE_STE/ModelEstimates_slopes_vs_SCRrandom_2021-03-30.tiff", height=6, width=8, dpi=300, units="in", compression="lzw")
 
 #plot rmse
 p3 <- ggplot(data=slopes, aes(x=sp, y=rmse, col=t, shape=mod)) +
@@ -431,4 +433,4 @@ p3 <- ggplot(data=slopes, aes(x=sp, y=rmse, col=t, shape=mod)) +
 p3
 
 #ggsave(ggarrange(p2, p3, ncol=1, common.legend=T, align="v", heights=c(2,1)), filename="Figures_TTE_STE/ModelEstimates_slopes_RMSE_vs_oSCR_2020-08-27.tiff", height=6, width=8, dpi=300, units="in", compression="lzw")
-ggsave(ggarrange(p2, p3, ncol=1, common.legend=T, align="v", heights=c(2,1)), filename="Figures_TTE_STE/ModelEstimates_slopes_RMSE_vs_SCRrandom_2021-03-30.tiff", height=6, width=8, dpi=300, units="in", compression="lzw")
+# ggsave(ggarrange(p2, p3, ncol=1, common.legend=T, align="v", heights=c(2,1)), filename="Figures_TTE_STE/ModelEstimates_slopes_RMSE_vs_SCRrandom_2021-03-30.tiff", height=6, width=8, dpi=300, units="in", compression="lzw")
